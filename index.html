@@ -1,86 +1,95 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Shopping - Gerenciador</title>
-  <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Gerenciador de Desfiles</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 </head>
 <body>
-  <div class="container">
-    <h1>Gerenciador de Desfiles</h1>
+    <div class="container">
+        <header>
+            <h1>Gerenciador de Desfiles</h1>
+        </header>
 
-    <section>
-      <h2>Adicionar Loja</h2>
-      <form id="loja-form">
-        <input type="text" id="loja-nome" placeholder="Nome da loja" required />
-        <button type="submit">Adicionar Loja</button>
-      </form>
-    </section>
+        <main>
+            <section aria-labelledby="loja-title">
+                <h2 id="loja-title">Adicionar Loja</h2>
+                <form id="loja-form">
+                    <label for="loja-nome" class="sr-only">Nome da loja</label>
+                    <input type="text" id="loja-nome" placeholder="Nome da loja" required />
+                    <button type="submit">Adicionar Loja</button>
+                </form>
+            </section>
 
-    <section>
-      <h2>Adicionar Modelo</h2>
-      <form id="modelo-form">
-        <input type="text" id="modelo-nome" placeholder="Nome da modelo" required />
-        <input type="number" id="modelo-numero" placeholder="Tempo de desfile (minutos)" required min="1"/>
-        <button type="submit">Adicionar Modelo</button>
-      </form>
-    </section>
+            <section aria-labelledby="modelo-title">
+                <h2 id="modelo-title">Adicionar Modelo</h2>
+                <form id="modelo-form">
+                    <label for="modelo-nome" class="sr-only">Nome da modelo</label>
+                    <input type="text" id="modelo-nome" placeholder="Nome da modelo" required />
+                    <label for="modelo-numero" class="sr-only">Tempo de desfile (minutos)</label>
+                    <input type="number" id="modelo-numero" placeholder="Tempo de desfile (minutos)" required min="1" />
+                    <button type="submit">Adicionar Modelo</button>
+                </form>
+            </section>
 
-    <section>
-      <h2>Condições por Modelo</h2>
-      <form id="condicoes-form">
-        <select id="condicao-modelo" required>
-          <option value="">Selecione a modelo</option>
-        </select>
-        <select id="condicao-loja" required>
-          <option value="">Selecione a loja</option>
-        </select>
-        <button type="submit">Bloquear Loja para Modelo</button>
-      </form>
-      <div id="condicoes-lista"></div>
-    </section>
+            <section aria-labelledby="condicoes-title">
+                <h2 id="condicoes-title">Restrições Modelo-Loja</h2>
+                <form id="condicoes-form">
+                     <label for="condicao-modelo" class="sr-only">Selecione a modelo</label>
+                    <select id="condicao-modelo" required>
+                        <option value="">Selecione a modelo</option>
+                        </select>
+                     <label for="condicao-loja" class="sr-only">Selecione a loja</label>
+                    <select id="condicao-loja" required>
+                        <option value="">Selecione a loja</option>
+                        </select>
+                    <button type="submit">Bloquear Loja para Modelo</button>
+                </form>
+                <div id="condicoes-lista" class="lista-display">
+                    </div>
+            </section>
 
+            <section id="registrar-desfile-section" aria-labelledby="desfile-form-title">
+                <h2 id="desfile-form-title">Registrar Desfile</h2>
+                <form id="desfile-form">
+                    <input type="hidden" id="desfile-edit-id"> <label for="desfile-modelo" class="sr-only">Selecione a modelo</label>
+                    <select id="desfile-modelo" required>
+                        <option value="">Selecione a modelo</option>
+                        </select>
+                    <label for="desfile-loja" class="sr-only">Selecione a loja</label>
+                    <select id="desfile-loja" required>
+                        <option value="">Selecione a loja</option>
+                        </select>
+                     <label for="desfile-hora" class="sr-only">Horário do desfile</label>
+                    <input type="time" id="desfile-hora" required />
+                    <div class="form-buttons">
+                        <button type="submit" id="desfile-submit-btn">Registrar</button>
+                        <button type="button" id="desfile-cancel-btn" class="btn-secondary" style="display: none;">Cancelar Edição</button>
+                    </div>
+                </form>
+                <div id="mensagem" role="alert" aria-live="assertive">
+                    </div>
+            </section>
 
-    <section id="registrar-desfile-section">
-      <h2 id="desfile-form-title">Registrar Desfile</h2>
-      <form id="desfile-form">
-        <input type="hidden" id="desfile-edit-id">
+            <section aria-labelledby="historico-title">
+                <h2 id="historico-title">Histórico de Desfiles</h2>
+                <div id="historico" class="lista-display">
+                    </div>
+            </section>
+        </main>
 
-        <select id="desfile-modelo" required>
-          <option value="">Selecione a modelo</option>
-        </select>
-        <select id="desfile-loja" required>
-          <option value="">Selecione a loja</option>
-        </select>
-        <input type="time" id="desfile-hora" required />
-        <div class="form-buttons">
-            <button type="submit" id="desfile-submit-btn">Registrar</button>
-            <button type="button" id="desfile-cancel-btn" style="display: none; background-color: #6c757d;">Cancelar Edição</button>
-        </div>
-      </form>
-      <div id="mensagem"></div>
-    </section>
-
-    <section>
-      <h2>Histórico de Desfiles</h2>
-      <div id="historico">
-          </div>
-    </section>
-  </div>
-
-  <script src="script.js"></script>
-
-  <section class="limpar-dados-section">
-    <h2>⚠️ Limpar Dados</h2>
-    <button onclick="limparHistorico()" class="btn-limpar-historico">
-      Limpar APENAS Histórico de Desfiles
-    </button>
-    <button onclick="limparDados()" class="btn-limpar-tudo">
-      Limpar TODOS os dados salvos
-    </button>
-  </section>
-
-</body>
+        <section class="limpar-dados-section" aria-labelledby="limpar-title">
+            <h2 id="limpar-title">⚠️ Limpeza de Dados</h2>
+            <div class="form-buttons">
+                 <button id="btn-limpar-historico" class="btn-warning" title="Remove todos os desfiles registrados, mas mantém lojas, modelos e restrições.">
+                    Limpar APENAS Histórico
+                </button>
+                <button id="btn-limpar-tudo" class="btn-danger" title="Apaga TUDO: lojas, modelos, desfiles e restrições. Não pode ser desfeito.">
+                    Limpar TUDO
+                </button>
+            </div>
+        </section>
+    </div> <script src="script.js" defer></script> </body>
 </html>

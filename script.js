@@ -1,647 +1,697 @@
-let lojas = JSON.parse(localStorage.getItem('lojas')) || [];
-let modelos = JSON.parse(localStorage.getItem('modelos')) || [];
-let desfiles = JSON.parse(localStorage.getItem('desfiles')) || [];
-let bloqueios = JSON.parse(localStorage.getItem('bloqueios')) || [];
+// Envolve todo o código em uma IIFE para criar um escopo local e evitar poluição global.
+(function() {
+    'use strict'; // Habilita o modo estrito para melhor qualidade de código
 
-// --- Elementos do DOM ---
-const lojaForm = document.getElementById('loja-form');
-const modeloForm = document.getElementById('modelo-form');
-const desfileForm = document.getElementById('desfile-form');
-const condForm = document.getElementById('condicoes-form');
-const lojaInput = document.getElementById('loja-nome');
-const modeloInput = document.getElementById('modelo-nome');
-const modeloNumInput = document.getElementById('modelo-numero');
-const modeloSelect = document.getElementById('desfile-modelo');
-const lojaSelect = document.getElementById('desfile-loja');
-const horaInput = document.getElementById('desfile-hora');
-const msgDiv = document.getElementById('mensagem');
-const histDiv = document.getElementById('historico');
-const condModelSelect = document.getElementById('condicao-modelo');
-const condLojaSelect = document.getElementById('condicao-loja');
-const condList = document.getElementById('condicoes-lista');
-const desfileEditIdInput = document.getElementById('desfile-edit-id'); // Input hidden
-const desfileSubmitBtn = document.getElementById('desfile-submit-btn'); // Botão Registrar/Atualizar
-const desfileCancelBtn = document.getElementById('desfile-cancel-btn'); // Botão Cancelar Edição
-const desfileFormTitle = document.getElementById('desfile-form-title'); // Título do formulário
-const registrarDesfileSection = document.getElementById('registrar-desfile-section'); // Seção do formulário
+    // --- Constantes ---
+    const MAX_DESFILES_POR_LOJA = 6;
+    const MAX_DESFILES_POR_MODELO = 6;
+    const MAX_DESFILES_MODELO_LOJA = 2;
+    const MINUTOS_INTERVALO_MODELO = 4;
+    const STORAGE_KEYS = {
+        lojas: 'lojas',
+        modelos: 'modelos',
+        desfiles: 'desfiles',
+        bloqueios: 'bloqueios'
+    };
 
-// --- Funções Core ---
-function salvar() {
-  try {
-    localStorage.setItem('lojas', JSON.stringify(lojas));
-    localStorage.setItem('modelos', JSON.stringify(modelos));
-    // Garante que apenas desfiles com ID sejam salvos
-    const desfilesValidosParaSalvar = desfiles.filter(d => d && typeof d === 'object' && d.id !== undefined && d.id !== null);
-    localStorage.setItem('desfiles', JSON.stringify(desfilesValidosParaSalvar));
-    localStorage.setItem('bloqueios', JSON.stringify(bloqueios));
-  } catch (error) {
-    console.error("Erro ao salvar no localStorage:", error);
-    alert("Erro ao salvar dados. Verifique o console.");
-  }
-}
+    // --- Estado da Aplicação ---
+    let lojas = [];
+    let modelos = [];
+    let desfiles = [];
+    let bloqueios = [];
 
+    // --- Seletores do DOM ( कैशिंग ) ---
+    // Fazemos isso uma vez para evitar buscas repetidas no DOM.
+    const DOMElements = {
+        lojaForm: document.getElementById('loja-form'),
+        modeloForm: document.getElementById('modelo-form'),
+        desfileForm: document.getElementById('desfile-form'),
+        condForm: document.getElementById('condicoes-form'),
+        lojaInput: document.getElementById('loja-nome'),
+        modeloInput: document.getElementById('modelo-nome'),
+        modeloNumInput: document.getElementById('modelo-numero'),
+        modeloSelect: document.getElementById('desfile-modelo'),
+        lojaSelect: document.getElementById('desfile-loja'),
+        horaInput: document.getElementById('desfile-hora'),
+        msgDiv: document.getElementById('mensagem'),
+        histDiv: document.getElementById('historico'),
+        condModelSelect: document.getElementById('condicao-modelo'),
+        condLojaSelect: document.getElementById('condicao-loja'),
+        condListDiv: document.getElementById('condicoes-lista'),
+        desfileEditIdInput: document.getElementById('desfile-edit-id'),
+        desfileSubmitBtn: document.getElementById('desfile-submit-btn'),
+        desfileCancelBtn: document.getElementById('desfile-cancel-btn'),
+        desfileFormTitle: document.getElementById('desfile-form-title'),
+        registrarDesfileSection: document.getElementById('registrar-desfile-section'),
+        btnLimparHistorico: document.getElementById('btn-limpar-historico'),
+        btnLimparTudo: document.getElementById('btn-limpar-tudo')
+    };
 
-function atualizarSelects() {
-  const currentModelo = modeloSelect.value;
-  const currentLoja = lojaSelect.value;
-  const currentCondModelo = condModelSelect.value;
-  const currentCondLoja = condLojaSelect.value;
+    // --- Funções de Persistência (LocalStorage) ---
 
-  modeloSelect.innerHTML = condModelSelect.innerHTML = '<option value="">Selecione a modelo</option>';
-  lojaSelect.innerHTML = condLojaSelect.innerHTML = '<option value="">Selecione a loja</option>';
+    /**
+     * Carrega os dados do LocalStorage para o estado da aplicação.
+     * Realiza validações básicas nos dados carregados.
+     */
+    function carregarDados() {
+        try {
+            lojas = JSON.parse(localStorage.getItem(STORAGE_KEYS.lojas)) || [];
+            modelos = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelos)) || [];
+            desfiles = JSON.parse(localStorage.getItem(STORAGE_KEYS.desfiles)) || [];
+            bloqueios = JSON.parse(localStorage.getItem(STORAGE_KEYS.bloqueios)) || [];
 
-  try {
-    const modelosOrdenados = [...modelos].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    const lojasOrdenadas = [...lojas].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+            // Validação e Limpeza básica dos dados carregados
+            if (!Array.isArray(lojas)) lojas = [];
+            if (!Array.isArray(modelos)) modelos = [];
+            if (!Array.isArray(desfiles)) desfiles = [];
+            if (!Array.isArray(bloqueios)) bloqueios = [];
 
-    modelosOrdenados.forEach((m) => {
-      const originalIndex = modelos.findIndex(original => original.nome === m.nome);
-      if (originalIndex > -1) {
-          const opt = new Option(m.nome, originalIndex);
-          modeloSelect.appendChild(opt.cloneNode(true));
-          condModelSelect.appendChild(opt.cloneNode(true));
-      }
-    });
+            // Filtra desfiles inválidos (ex: sem ID, dados faltando)
+            const desfilesOriginaisCount = desfiles.length;
+            desfiles = desfiles.filter(d =>
+                d && typeof d === 'object' &&
+                d.id != null && // Verifica se id existe e não é null/undefined
+                d.modelo != null && // Verifica modelo, loja, hora
+                d.loja != null &&
+                d.hora != null
+            );
 
-    lojasOrdenadas.forEach((l) => {
-      const originalIndex = lojas.findIndex(original => original.nome === l.nome);
-      if (originalIndex > -1) {
-          const opt = new Option(l.nome, originalIndex);
-          lojaSelect.appendChild(opt.cloneNode(true));
-          condLojaSelect.appendChild(opt.cloneNode(true));
-      }
-    });
+            if (desfiles.length !== desfilesOriginaisCount) {
+                console.warn("Desfiles inválidos foram removidos do localStorage durante o carregamento.");
+                salvarDados(); // Salva a lista limpa imediatamente
+            }
 
-    // Restaura seleção se possível e válida
-    if (modelos[currentModelo]) modeloSelect.value = currentModelo;
-    if (lojas[currentLoja]) lojaSelect.value = currentLoja;
-    if (modelos[currentCondModelo]) condModelSelect.value = currentCondModelo;
-    if (lojas[currentCondLoja]) condLojaSelect.value = currentCondLoja;
-
-  } catch(error) {
-      console.error("Erro em atualizarSelects:", error);
-      alert("Erro ao atualizar as listas de seleção. Verifique o console.");
-  }
-}
-
-function mostrarCondicoes() {
-  condList.innerHTML = '';
-  if (!Array.isArray(bloqueios)) {
-    console.error("Erro: 'bloqueios' não é um array!", bloqueios);
-    condList.innerHTML = '<p style="color: red;">Erro ao carregar restrições.</p>';
-    return;
-  }
-
-  if (bloqueios.length === 0) {
-      condList.innerHTML = '<p>Nenhuma restrição definida.</p>';
-      return;
-  }
-
-  try {
-    bloqueios.sort((a,b) => {
-        const nomeModeloA = modelos[a.modelo]?.nome || '';
-        const nomeModeloB = modelos[b.modelo]?.nome || '';
-        // Verifica se a/b e a.loja/b.loja são válidos
-        const lojaIndexA = a?.loja ?? -1;
-        const lojaIndexB = b?.loja ?? -1;
-        return nomeModeloA.localeCompare(nomeModeloB) || (lojaIndexA - lojaIndexB);
-    })
-    bloqueios.forEach((b) => {
-      if (b && typeof b === 'object' && b.modelo !== undefined && b.loja !== undefined) {
-          const modelo = modelos[b.modelo]?.nome;
-          const loja = lojas[b.loja]?.nome;
-          if (modelo && loja) { // Só exibe se modelo e loja ainda existem
-            condList.innerHTML += `<div>❌ ${modelo} não pode usar roupas da loja <strong>${loja}</strong></div>`;
-          }
-      } else {
-          console.warn("Item de bloqueio inválido encontrado:", b);
-      }
-    });
-  } catch (error) {
-      console.error("Erro em mostrarCondicoes:", error);
-      condList.innerHTML = '<p style="color: red;">Erro ao exibir restrições.</p>';
-  }
-}
+             // Filtra bloqueios inválidos
+             bloqueios = bloqueios.filter(b =>
+                b && typeof b === 'object' &&
+                b.modelo != null && b.loja != null &&
+                modelos[b.modelo] && lojas[b.loja] // Verifica se modelo/loja ainda existem
+            );
 
 
-// --- FUNÇÃO mostrarHistorico COM DEBUG ---
-function mostrarHistorico() {
-    console.log("--- Iniciando mostrarHistorico ---"); // Log 1: Função iniciada
-    console.log("Dados crus - Desfiles:", JSON.stringify(desfiles)); // Log 2: Verifica dados crus
-    console.log("Dados crus - Lojas:", JSON.stringify(lojas));
-    console.log("Dados crus - Modelos:", JSON.stringify(modelos));
+        } catch (e) {
+            console.error("Erro Crítico ao carregar dados do localStorage:", e);
+            alert("Erro ao carregar dados salvos. Os dados podem ter sido corrompidos ou são de uma versão incompatível. Iniciando com dados vazios.");
+            lojas = []; modelos = []; desfiles = []; bloqueios = [];
+            localStorage.clear(); // Limpa o localStorage potencialmente corrompido
+        }
+    }
 
-    try { // Adiciona um bloco try...catch para capturar erros internos
-        histDiv.innerHTML = ''; // Limpa o histórico atual
+    /**
+     * Salva o estado atual da aplicação (arrays) no LocalStorage.
+     */
+    function salvarDados() {
+        try {
+            localStorage.setItem(STORAGE_KEYS.lojas, JSON.stringify(lojas));
+            localStorage.setItem(STORAGE_KEYS.modelos, JSON.stringify(modelos));
+            localStorage.setItem(STORAGE_KEYS.desfiles, JSON.stringify(desfiles));
+            localStorage.setItem(STORAGE_KEYS.bloqueios, JSON.stringify(bloqueios));
+        } catch (error) {
+            console.error("Erro ao salvar dados no localStorage:", error);
+            mostrarMensagem("Erro ao salvar dados. Suas últimas alterações podem não ter sido salvas.", true);
+        }
+    }
 
-        // Verifica se desfiles é um array válido
-        if (!Array.isArray(desfiles)) {
-            console.error("ERRO: 'desfiles' não é um array!", desfiles);
-            histDiv.innerHTML = '<p style="color: red;">Erro interno: dados de desfiles inválidos.</p>';
+    // --- Funções de Renderização (Atualização da UI) ---
+
+    /**
+     * Cria e retorna um elemento Option para selects.
+     * @param {string} text - O texto visível da opção.
+     * @param {string|number} value - O valor da opção.
+     * @returns {HTMLOptionElement} O elemento option criado.
+     */
+    function criarOption(text, value) {
+        const option = document.createElement('option');
+        option.textContent = text;
+        option.value = value;
+        return option;
+    }
+
+    /**
+     * Popula um elemento select com opções de um array de dados.
+     * @param {HTMLSelectElement} selectElement - O elemento select a ser populado.
+     * @param {Array} dataArray - O array de dados (lojas ou modelos).
+     * @param {string} placeholder - O texto da opção inicial (placeholder).
+     */
+    function popularSelect(selectElement, dataArray, placeholder) {
+        // Guarda o valor selecionado antes de limpar, se houver
+        const valorAtual = selectElement.value;
+        selectElement.innerHTML = ''; // Limpa opções existentes
+        selectElement.appendChild(criarOption(placeholder, '')); // Adiciona placeholder
+
+        // Ordena os dados pelo nome para exibição consistente
+        const dadosOrdenados = [...dataArray].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+
+        dadosOrdenados.forEach((item) => {
+            // Encontra o índice original no array principal (necessário pois usamos índices como ID)
+            const originalIndex = dataArray.findIndex(original => original && original.nome === item.nome);
+            if (originalIndex > -1 && item && item.nome) { // Garante que o item e nome existem
+                selectElement.appendChild(criarOption(item.nome, originalIndex));
+            }
+        });
+
+        // Tenta restaurar o valor selecionado anteriormente, se ainda for válido
+         if (dataArray[valorAtual]) {
+            selectElement.value = valorAtual;
+        }
+    }
+
+    /**
+     * Atualiza todos os selects da página (lojas e modelos).
+     */
+    function atualizarTodosOsSelects() {
+        popularSelect(DOMElements.modeloSelect, modelos, 'Selecione a modelo');
+        popularSelect(DOMElements.lojaSelect, lojas, 'Selecione a loja');
+        popularSelect(DOMElements.condModelSelect, modelos, 'Selecione a modelo');
+        popularSelect(DOMElements.condLojaSelect, lojas, 'Selecione a loja');
+    }
+
+    /**
+     * Renderiza a lista de restrições na tela.
+     */
+    function renderizarCondicoes() {
+        const { condListDiv } = DOMElements;
+        condListDiv.innerHTML = ''; // Limpa lista atual
+
+        if (!Array.isArray(bloqueios)) {
+             console.error("Erro: 'bloqueios' não é um array!", bloqueios);
+             condListDiv.innerHTML = '<p class="error-message">Erro ao carregar restrições.</p>';
+             return;
+        }
+
+        if (bloqueios.length === 0) {
+            condListDiv.innerHTML = '<p>Nenhuma restrição definida.</p>';
             return;
         }
 
-        // 1. Contar desfiles por loja (com verificação)
-        const contagemLojas = {};
-        desfiles.forEach((d, index) => {
-            // Verifica se o item 'd' e suas propriedades são válidos
-            if (d && typeof d === 'object' && d.loja !== undefined && d.loja !== null && lojas[d.loja]) {
-                 contagemLojas[d.loja] = (contagemLojas[d.loja] || 0) + 1;
-            } else {
-                // Não loga aviso aqui para não poluir, a validação ocorrerá depois
+        // Ordena para exibição consistente
+        const bloqueiosOrdenados = [...bloqueios].sort((a,b) => {
+             const nomeModeloA = modelos[a?.modelo]?.nome || '';
+             const nomeModeloB = modelos[b?.modelo]?.nome || '';
+             const lojaIndexA = a?.loja ?? -1;
+             const lojaIndexB = b?.loja ?? -1;
+             return nomeModeloA.localeCompare(nomeModeloB) || (lojaIndexA - lojaIndexB);
+         });
+
+        const fragment = document.createDocumentFragment(); // Usa fragmento para eficiência
+        bloqueiosOrdenados.forEach((b) => {
+            if (b && b.modelo != null && b.loja != null) { // Verifica validade do bloqueio
+                const modelo = modelos[b.modelo];
+                const loja = lojas[b.loja];
+                if (modelo && loja) { // Verifica se modelo e loja ainda existem
+                    const div = document.createElement('div');
+                    div.innerHTML = `❌ ${modelo.nome} não pode usar roupas da loja <strong>${loja.nome}</strong>`;
+                    fragment.appendChild(div);
+                }
             }
         });
-        console.log("Contagem por loja:", contagemLojas); // Log 3: Verifica contagem
+        condListDiv.appendChild(fragment);
+    }
 
-        // 2. Ordenar desfiles (com verificação e filtro)
-        const desfilesOrdenados = [...desfiles]
-            .filter(d => d && typeof d === 'object' && d.id !== undefined && d.id !== null && d.modelo !== undefined && d.loja !== undefined && d.hora !== undefined) // Filtra itens inválidos ANTES de ordenar
-            .sort((a, b) => {
-                try { // try...catch dentro do sort para isolar erros de comparação
-                    // Compara pelo índice da loja primeiro
-                    if (a.loja !== b.loja) {
-                        const nomeLojaA = lojas[a.loja]?.nome || '';
-                        const nomeLojaB = lojas[b.loja]?.nome || '';
-                        const comparacaoLoja = nomeLojaA.localeCompare(nomeLojaB);
-                        // Fallback para índice numérico se nomes forem iguais ou um não existir
-                        if (comparacaoLoja !== 0 || (nomeLojaA && nomeLojaB)) {
-                             return comparacaoLoja;
-                        }
-                         return (a.loja ?? -1) - (b.loja ?? -1); // Usa ?? para tratar null/undefined
-                    }
-                    // Dentro da mesma loja, ordena por hora
-                     // Garante que a.hora e b.hora são strings antes de comparar
-                    const horaA = String(a.hora ?? '');
-                    const horaB = String(b.hora ?? '');
-                    return horaA.localeCompare(horaB);
-                } catch (sortError) {
-                    console.error("Erro dentro da função sort:", sortError, "Itens:", a, b);
-                    return 0; // Retorna 0 para evitar quebrar a ordenação
-                }
-            });
-        console.log("Desfiles válidos e ordenados:", JSON.stringify(desfilesOrdenados)); // Log 4: Verifica ordenação
 
+    /**
+     * Renderiza o histórico de desfiles de forma otimizada.
+     */
+    function renderizarHistorico() {
+        const { histDiv } = DOMElements;
+        histDiv.innerHTML = ''; // Limpa
+
+        if (!Array.isArray(desfiles)) {
+             console.error("Erro: 'desfiles' não é um array!", desfiles);
+             histDiv.innerHTML = '<p class="error-message">Erro ao carregar histórico.</p>';
+             return;
+        }
+        // Filtra desfiles inválidos ANTES de qualquer processamento
+        const desfilesValidos = desfiles.filter(d =>
+            d && typeof d === 'object' && d.id != null &&
+            d.modelo != null && d.loja != null && d.hora != null
+        );
+
+        if (desfilesValidos.length === 0) {
+            histDiv.innerHTML = '<p>Nenhum desfile registrado ainda.</p>';
+            return;
+        }
+
+        // Contagem por loja (apenas dos válidos)
+        const contagemLojas = {};
+        desfilesValidos.forEach(d => {
+             if (lojas[d.loja]) { // Conta apenas se a loja existe
+                contagemLojas[d.loja] = (contagemLojas[d.loja] || 0) + 1;
+             }
+        });
+
+        // Ordena os desfiles válidos
+        const desfilesOrdenados = [...desfilesValidos].sort((a, b) => {
+             try {
+                 if (a.loja !== b.loja) {
+                     const nomeLojaA = lojas[a.loja]?.nome || '';
+                     const nomeLojaB = lojas[b.loja]?.nome || '';
+                     const comparacaoLoja = nomeLojaA.localeCompare(nomeLojaB);
+                      if (comparacaoLoja !== 0 || (nomeLojaA && nomeLojaB)) return comparacaoLoja;
+                      return (a.loja ?? -1) - (b.loja ?? -1);
+                 }
+                 const horaA = String(a.hora ?? '');
+                 const horaB = String(b.hora ?? '');
+                 return horaA.localeCompare(horaB);
+             } catch (sortError) {
+                 console.error("Erro sort:", sortError, a, b); return 0;
+             }
+         });
+
+        const fragment = document.createDocumentFragment(); // Otimização: cria elementos fora do DOM
         let lojaAtual = null;
 
-        // 3. Iterar e exibir (com verificação robusta)
-        if (desfilesOrdenados.length > 0) {
-            desfilesOrdenados.forEach((d, index) => {
-                console.log(`Processando item ordenado ${index}:`, d); // Log 5: Verifica cada item VÁLIDO
+        desfilesOrdenados.forEach(d => {
+            const modeloExiste = modelos[d.modelo];
+            const lojaExiste = lojas[d.loja];
+            const modeloNome = modeloExiste ? modeloExiste.nome : 'Modelo Removido';
+            const lojaNome = lojaExiste ? lojaExiste.nome : 'Loja Removida';
+            const lojaIndex = d.loja;
 
-                // As verificações principais já foram feitas no filter antes do sort
-                // Mas verificamos se modelo/loja ainda existem
-                const modeloExiste = modelos[d.modelo];
-                const lojaExiste = lojas[d.loja];
-                if (!modeloExiste) console.warn(`Modelo com índice ${d.modelo} não encontrado para o item ${index}:`, d);
-                if (!lojaExiste) console.warn(`Loja com índice ${d.loja} não encontrada para o item ${index}:`, d);
-
-                const modeloNome = modeloExiste ? modeloExiste.nome : 'Modelo Removido'; // Nome mais claro
-                const lojaNome = lojaExiste ? lojaExiste.nome : 'Loja Removida'; // Nome mais claro
-                const lojaIndex = d.loja;
-
-                // Exibe cabeçalho da loja se mudar
-                if (lojaIndex !== lojaAtual) {
-                    if (lojaAtual !== null) {
-                        histDiv.innerHTML += '<hr>';
-                    }
-                    let cabecalhoLoja = `<h3>Loja: ${lojaNome} ${(lojaExiste?'':'(Removida)')}</h3>`; // Indica se foi removida
-                    // Usa contagemLojas que foi calculada ANTES do filtro para ter o total real
-                    const totalDesfilesLojaOriginal = desfiles.filter(df => df && df.loja === lojaIndex).length; // Recalcula total original se necessário, ou usa contagemLojas se confiável
-                    if (totalDesfilesLojaOriginal >= 6) {
-                        cabecalhoLoja += `<div class="aviso-excesso">⚠️ Limite de 6 desfiles atingido nesta loja! (${totalDesfilesLojaOriginal} registrados)</div>`;
-                    }
-                    histDiv.innerHTML += cabecalhoLoja;
-                    lojaAtual = lojaIndex;
+            // Cabeçalho da Loja
+            if (lojaIndex !== lojaAtual) {
+                if (lojaAtual !== null) {
+                    fragment.appendChild(document.createElement('hr'));
                 }
+                const h3 = document.createElement('h3');
+                h3.textContent = `Loja: ${lojaNome} ${(!lojaExiste ? '(Removida)' : '')}`;
+                fragment.appendChild(h3);
 
-                // Monta o HTML do item (com try...catch para segurança extra na string)
-                try {
-                    const itemHtml = `
-                        <div class="desfile-item" data-id="${d.id}">
-                            <span class="desfile-info">🕘 ${d.hora} - ${modeloNome} ${(modeloExiste?'':'(Removido)')} desfilou</span>
-                            <span class="desfile-actions">
-                                <button class="edit-desfile-btn" data-id="${d.id}" title="Editar Desfile" ${(!modeloExiste || !lojaExiste) ? 'disabled' : ''}> <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="delete-desfile-btn" data-id="${d.id}" title="Apagar Desfile">
-                                    <i class="fas fa-trash-alt"></i>
-                                </button>
-                            </span>
-                        </div>`;
-                     histDiv.innerHTML += itemHtml;
-                } catch (htmlError) {
-                     console.error(`Erro ao gerar HTML para o item ${index}:`, htmlError, d);
-                      histDiv.innerHTML += `<p style="color:red;">Erro ao exibir item ${index}</p>`; // Indica erro no item específico
+                const totalDesfilesLoja = contagemLojas[lojaIndex] || 0; // Pega contagem dos válidos
+                if (totalDesfilesLoja >= MAX_DESFILES_POR_LOJA) {
+                    const avisoDiv = document.createElement('div');
+                    avisoDiv.className = 'aviso-excesso';
+                    avisoDiv.innerHTML = `⚠️ Limite de ${MAX_DESFILES_POR_LOJA} desfiles atingido nesta loja! (${totalDesfilesLoja} registrados)`;
+                    fragment.appendChild(avisoDiv);
                 }
-            });
-        } else if (desfiles.length > 0) {
-             // Se tinha desfiles mas a lista ordenada ficou vazia (devido a filtros)
-             console.warn("Desfiles existem, mas nenhum é válido para exibição (sem ID, modelo/loja/hora inválido?). Verifique os dados crus.");
-             histDiv.innerHTML = '<p>Nenhum desfile válido para exibir. Verifique os dados registrados ou limpe o histórico.</p>';
-        } else {
-            // Nenhum desfile registrado
-             histDiv.innerHTML = '<p>Nenhum desfile registrado ainda.</p>';
+                lojaAtual = lojaIndex;
+            }
+
+            // Item do Desfile
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'desfile-item';
+            itemDiv.dataset.id = d.id;
+
+            const infoSpan = document.createElement('span');
+            infoSpan.className = 'desfile-info';
+            infoSpan.innerHTML = `🕘 ${d.hora} - ${modeloNome} ${(!modeloExiste ? '(Removido)' : '')} desfilou`;
+
+            const actionsSpan = document.createElement('span');
+            actionsSpan.className = 'desfile-actions';
+
+            const editButton = document.createElement('button');
+            editButton.className = 'edit-desfile-btn';
+            editButton.dataset.id = d.id;
+            editButton.title = "Editar Desfile";
+            editButton.innerHTML = '<i class="fas fa-edit"></i>';
+            editButton.disabled = !modeloExiste || !lojaExiste; // Desabilita se modelo/loja removido
+
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'delete-desfile-btn';
+            deleteButton.dataset.id = d.id;
+            deleteButton.title = "Apagar Desfile";
+            deleteButton.innerHTML = '<i class="fas fa-trash-alt"></i>';
+
+            actionsSpan.appendChild(editButton);
+            actionsSpan.appendChild(deleteButton);
+            itemDiv.appendChild(infoSpan);
+            itemDiv.appendChild(actionsSpan);
+            fragment.appendChild(itemDiv);
+        });
+
+        histDiv.appendChild(fragment); // Adiciona tudo ao DOM de uma vez
+    }
+
+    /**
+     * Exibe uma mensagem de status ou erro para o usuário.
+     * @param {string} texto - A mensagem a ser exibida.
+     * @param {boolean} [isError=false] - Define se a mensagem é de erro (true) ou sucesso/info (false).
+     */
+    function mostrarMensagem(texto, isError = false) {
+        const { msgDiv } = DOMElements;
+        msgDiv.textContent = texto;
+        msgDiv.className = isError ? 'error visible' : 'success visible'; // Adiciona 'visible'
+
+        // Opcional: esconder a mensagem após alguns segundos
+        // setTimeout(() => {
+        //     msgDiv.classList.remove('visible');
+        //     // Atraso um pouco mais para remover o texto e classes de cor
+        //     setTimeout(() => {
+        //          msgDiv.textContent = '';
+        //          msgDiv.className = '';
+        //     }, 300); // Tempo da transição de opacidade
+        // }, 5000); // 5 segundos
+    }
+
+    // --- Lógica de Negócio e Validação ---
+
+    /**
+     * Verifica se uma modelo pode desfilar em uma loja e horário específicos.
+     * @param {string|number} modeloIndex - Índice da modelo no array 'modelos'.
+     * @param {string|number} lojaIndex - Índice da loja no array 'lojas'.
+     * @param {string} hora - Horário no formato "HH:MM".
+     * @param {number|null} [idParaIgnorar=null] - ID do desfile a ser ignorado na validação (durante edição).
+     * @returns {string|null} Retorna uma string de erro se não puder desfilar, ou null se puder.
+     */
+    function podeDesfilar(modeloIndex, lojaIndex, hora, idParaIgnorar = null) {
+        // Converte índices para número para garantir consistência
+        const modIdx = Number(modeloIndex);
+        const lojIdx = Number(lojaIndex);
+
+        // Validações básicas de índice e dados
+        if (isNaN(modIdx) || isNaN(lojIdx) || !modelos[modIdx] || !lojas[lojIdx] || !hora) {
+            return 'Modelo, loja ou horário inválido/não selecionado.';
         }
 
-         console.log("--- Finalizando mostrarHistorico ---"); // Log 6: Função concluída
+        const modelo = modelos[modIdx];
+        const lojaNome = lojas[lojIdx]?.nome || 'selecionada';
+        const horaMinutos = parseInt(hora.split(':')[0]) * 60 + parseInt(hora.split(':')[1]);
+        if (isNaN(horaMinutos)) return 'Horário inválido.'; // Verifica se o parsing do horário funcionou
 
-    } catch (error) {
-        console.error("--- ERRO GERAL EM mostrarHistorico ---:", error); // Log 7: Erro capturado
-        // Mostra uma mensagem de erro clara na interface
-        histDiv.innerHTML = '<p style="color: red; font-weight: bold;">Ocorreu um erro ao carregar o histórico. Verifique o console do navegador (F12) para mais detalhes.</p>';
+        // Filtra desfiles válidos, ignorando o ID especificado
+        const desfilesParaVerificar = desfiles.filter(d =>
+            d && d.id != null && d.id !== idParaIgnorar // Compara IDs (idParaIgnorar já deve ser número)
+        );
+
+        // 1. Limite TOTAL por LOJA
+        if (desfilesParaVerificar.filter(d => d.loja == lojIdx).length >= MAX_DESFILES_POR_LOJA) {
+            return `A loja ${lojaNome} já atingiu o limite de ${MAX_DESFILES_POR_LOJA} desfiles no total.`;
+        }
+
+        // 2. Horário ocupado por OUTRA modelo
+        const horarioOcupado = desfilesParaVerificar.find(d => d.hora === hora && d.modelo != modIdx);
+        if (horarioOcupado) {
+            const modeloOcupante = modelos[horarioOcupado.modelo]?.nome || 'Outra modelo';
+            return `Horário ${hora} já ocupado por ${modeloOcupante}.`;
+        }
+
+        // 3. Restrição Modelo-Loja
+        if (bloqueios.some(b => b && b.modelo == modIdx && b.loja == lojIdx)) {
+            return `Modelo ${modelo.nome} está bloqueada para a loja ${lojaNome}.`;
+        }
+
+        // Filtra desfiles apenas para a modelo atual
+        const desfilesModelo = desfilesParaVerificar.filter(d => d.modelo == modIdx);
+
+        // 4. Limite de desfiles GERAL da modelo
+        if (desfilesModelo.length >= MAX_DESFILES_POR_MODELO) {
+            return `Modelo ${modelo.nome} já atingiu o limite de ${MAX_DESFILES_POR_MODELO} desfiles (geral).`;
+        }
+
+        // 5. Limite de desfiles da modelo PELA MESMA LOJA
+        if (desfilesModelo.filter(d => d.loja == lojIdx).length >= MAX_DESFILES_MODELO_LOJA) {
+            return `Modelo ${modelo.nome} já desfilou ${MAX_DESFILES_MODELO_LOJA} vezes pela loja ${lojaNome}.`;
+        }
+
+        // 6. Intervalo mínimo entre desfiles da mesma modelo
+        const tempoModelo = parseInt(modelo.numero);
+        if (isNaN(tempoModelo) || tempoModelo <= 0) {
+            return `Tempo de desfile inválido para ${modelo.nome}. Verifique o cadastro.`;
+        }
+        const intervaloMinimo = tempoModelo + MINUTOS_INTERVALO_MODELO;
+
+        for (let d of desfilesModelo) {
+            if (d.hora && typeof d.hora === 'string' && d.hora.includes(':')) {
+                const minutosDesfileAnterior = parseInt(d.hora.split(':')[0]) * 60 + parseInt(d.hora.split(':')[1]);
+                if (!isNaN(minutosDesfileAnterior) && Math.abs(horaMinutos - minutosDesfileAnterior) < intervaloMinimo) {
+                    return `Intervalo insuficiente para ${modelo.nome}. Precisa de ${intervaloMinimo} min. Último desfile dela às ${d.hora}.`;
+                }
+            }
+        }
+
+        return null; // Nenhuma regra impediu, pode desfilar.
     }
-}
-// --- FIM DA FUNÇÃO mostrarHistorico COM DEBUG ---
 
 
-function podeDesfilar(modeloIndex, lojaIndex, hora, idParaIgnorar = null) {
-    if (modeloIndex === "" || lojaIndex === "" || !modelos[modeloIndex] || !lojas[lojaIndex]) {
-        return 'Modelo ou loja inválida/não selecionada.';
+    // --- Funções de Ação (Adicionar, Editar, Apagar, Limpar) ---
+
+    /** Limpa o formulário de desfile e o estado de edição. */
+    function cancelarEdicao() {
+        DOMElements.desfileEditIdInput.value = ''; // Limpa ID
+        DOMElements.desfileForm.reset(); // Reseta o formulário para valores padrão
+        DOMElements.desfileFormTitle.textContent = "Registrar Desfile";
+        DOMElements.desfileSubmitBtn.textContent = "Registrar";
+        DOMElements.desfileCancelBtn.style.display = 'none'; // Esconde botão Cancelar
+        DOMElements.desfileForm.classList.remove('editing'); // Remove classe CSS
+        DOMElements.msgDiv.textContent = ''; // Limpa mensagens
+        DOMElements.msgDiv.className = ''; // Remove classes de cor/visibilidade
     }
 
-    const modelo = modelos[modeloIndex];
-    const lojaNome = lojas[lojaIndex]?.nome || 'selecionada';
-    const horaMinutos = parseInt(hora.split(':')[0]) * 60 + parseInt(hora.split(':')[1]);
+    /** Prepara o formulário para editar um desfile existente. */
+    function prepararEdicaoDesfile(id) {
+        const idNumerico = Number(id);
+        if (isNaN(idNumerico)) return;
 
-    // Filtra desfiles válidos ignorando o ID especificado (comparação numérica)
-    const desfilesParaVerificar = desfiles.filter(d => d && typeof d === 'object' && d.id !== undefined && d.id !== null && d.id !== idParaIgnorar);
+        const desfileParaEditar = desfiles.find(d => d && d.id === idNumerico);
+        if (desfileParaEditar) {
+             // Verifica se modelo e loja ainda existem
+            if (!modelos[desfileParaEditar.modelo] || !lojas[desfileParaEditar.loja]) {
+                mostrarMensagem("Não é possível editar: Modelo ou Loja original não existe mais.", true);
+                return;
+            }
 
-    // 1. Verifica o limite de desfiles TOTAL por LOJA
-    const desfilesDaLoja = desfilesParaVerificar.filter(d => d.loja == lojaIndex);
-    if (desfilesDaLoja.length >= 6) {
-        return `A loja ${lojaNome} já atingiu o limite de 6 desfiles no total.`;
+            DOMElements.desfileEditIdInput.value = idNumerico;
+            DOMElements.modeloSelect.value = desfileParaEditar.modelo;
+            DOMElements.lojaSelect.value = desfileParaEditar.loja;
+            DOMElements.horaInput.value = desfileParaEditar.hora;
+
+            DOMElements.desfileFormTitle.textContent = "Editar Desfile";
+            DOMElements.desfileSubmitBtn.textContent = "Atualizar Desfile";
+            DOMElements.desfileCancelBtn.style.display = 'inline-block';
+            DOMElements.desfileForm.classList.add('editing');
+            DOMElements.registrarDesfileSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            mostrarMensagem(''); // Limpa mensagens anteriores
+        } else {
+            console.error('Desfile não encontrado para editar com ID:', idNumerico);
+            mostrarMensagem('Erro: Desfile não encontrado para editar.', true);
+        }
     }
 
-    // 2. Verifica se o horário exato já está ocupado por OUTRA modelo
-    const horarioOcupado = desfilesParaVerificar.find(d => d.hora === hora && d.modelo != modeloIndex);
-    if (horarioOcupado && horarioOcupado.modelo != modeloIndex) {
-        const modeloOcupante = modelos[horarioOcupado.modelo]?.nome || 'Outra modelo';
-        return `Horário ${hora} já ocupado por ${modeloOcupante}.`;
-    }
+    /** Apaga um desfile do histórico. */
+    function apagarDesfile(id) {
+        const idNumerico = Number(id);
+         if (isNaN(idNumerico)) return;
 
-    // 3. Restrição de loja específica para a modelo
-    if (bloqueios.some(b => b && b.modelo == modeloIndex && b.loja == lojaIndex)) {
-        return `Modelo ${modelo.nome} está bloqueada para a loja ${lojaNome}.`;
-    }
+        const desfileIndex = desfiles.findIndex(d => d && d.id === idNumerico);
+        if (desfileIndex > -1) {
+            const modeloNome = modelos[desfiles[desfileIndex].modelo]?.nome || 'Desconhecido';
+            const lojaNome = lojas[desfiles[desfileIndex].loja]?.nome || 'Desconhecida';
+            const hora = desfiles[desfileIndex].hora;
 
-    // Filtra desfiles apenas para a modelo atual (da lista já filtrada por ID)
-    const desfilesModelo = desfilesParaVerificar.filter(d => d.modelo == modeloIndex);
-
-    // 4. Total de desfiles da modelo (geral)
-    if (desfilesModelo.length >= 6) {
-        return `Modelo ${modelo.nome} já atingiu o limite de 6 desfiles (geral).`;
-    }
-
-    // 5. Desfiles da modelo PELA MESMA LOJA
-    const porLoja = desfilesModelo.filter(d => d.loja == lojaIndex);
-    if (porLoja.length >= 2) {
-        return `Modelo ${modelo.nome} já desfilou 2 vezes pela loja ${lojaNome}.`;
-    }
-
-    // 6. Intervalo de 4 minutos + tempo de desfile da modelo
-    const tempoModelo = parseInt(modelo.numero);
-    if (isNaN(tempoModelo) || tempoModelo <= 0) {
-        console.warn(`Modelo ${modelo.nome} com tempo de desfile inválido: ${modelo.numero}`);
-        return `Tempo de desfile inválido para ${modelo.nome}. Verifique o cadastro.`;
-    }
-    const intervaloMinimo = tempoModelo + 4;
-
-    for (let d of desfilesModelo) {
-        // Verifica se d.hora é válido antes de calcular
-        if (d.hora && typeof d.hora === 'string' && d.hora.includes(':')) {
-            const minutosDesfileAnterior = parseInt(d.hora.split(':')[0]) * 60 + parseInt(d.hora.split(':')[1]);
-            if (!isNaN(minutosDesfileAnterior) && Math.abs(horaMinutos - minutosDesfileAnterior) < intervaloMinimo) {
-                return `Intervalo insuficiente para ${modelo.nome}. Precisa de ${intervaloMinimo} min. Último desfile dela às ${d.hora}.`;
+            if (confirm(`Tem certeza que deseja apagar o desfile de ${modeloNome} por ${lojaNome} às ${hora}?`)) {
+                desfiles.splice(desfileIndex, 1);
+                salvarDados();
+                renderizarHistorico(); // Atualiza UI
+                mostrarMensagem('Desfile apagado com sucesso.');
+                // Cancela edição se estava editando o item apagado
+                if (Number(DOMElements.desfileEditIdInput.value) === idNumerico) {
+                    cancelarEdicao();
+                }
             }
         } else {
-            console.warn("Item de desfile com hora inválida encontrado durante verificação de intervalo:", d);
+            console.error('Desfile não encontrado para apagar com ID:', idNumerico);
+            mostrarMensagem('Erro: Desfile não encontrado para apagar.', true);
         }
     }
 
-    return null; // Pode desfilar
-}
+     /** Limpa todos os dados da aplicação. */
+    function limparTodosOsDados() {
+        if (confirm('Tem certeza que deseja apagar TODOS os dados (lojas, modelos, desfiles, restrições)? Esta ação não pode ser desfeita.')) {
+            localStorage.clear();
+            lojas = []; modelos = []; desfiles = []; bloqueios = [];
+            cancelarEdicao(); // Reseta o formulário de desfile
+            // Atualiza toda a UI para refletir o estado vazio
+            atualizarTodosOsSelects();
+            renderizarCondicoes();
+            renderizarHistorico();
+            mostrarMensagem("Todos os dados foram apagados.");
+        }
+    }
 
-// --- Funções de Ação (Apagar, Editar, Cancelar) ---
-function apagarDesfile(id) {
-    const idNumerico = Number(id);
-    if (isNaN(idNumerico)) { console.error("ID inválido para apagar:", id); return; }
+     /** Limpa apenas o histórico de desfiles. */
+    function limparApenasHistorico() {
+        if (desfiles.length === 0) {
+            mostrarMensagem("O histórico de desfiles já está vazio.");
+            return;
+        }
+        if (confirm('Tem certeza que deseja apagar APENAS o histórico de desfiles? Lojas, modelos e restrições serão mantidos.')) {
+            desfiles = [];
+            salvarDados(); // Salva o array vazio
+            renderizarHistorico(); // Atualiza UI
+             if (DOMElements.desfileEditIdInput.value) { // Se estava editando algo
+                 cancelarEdicao(); // Cancela a edição
+             }
+            mostrarMensagem('Histórico de desfiles limpo com sucesso.');
+        }
+    }
 
-    const desfileIndex = desfiles.findIndex(d => d && d.id === idNumerico);
-    if (desfileIndex > -1) {
-        const modeloNome = modelos[desfiles[desfileIndex].modelo]?.nome || 'Desconhecido';
-        const lojaNome = lojas[desfiles[desfileIndex].loja]?.nome || 'Desconhecida';
-        const hora = desfiles[desfileIndex].hora;
-        if (confirm(`Tem certeza que deseja apagar o desfile de ${modeloNome} por ${lojaNome} às ${hora}?`)) {
-            desfiles.splice(desfileIndex, 1);
-            salvar();
-            mostrarHistorico();
-            alert('Desfile apagado.');
-            if(Number(desfileEditIdInput.value) === idNumerico) {
-                 cancelarEdicao();
+    // --- Inicialização e Event Listeners ---
+
+    /** Configura todos os event listeners da aplicação. */
+    function inicializarEventos() {
+        DOMElements.lojaForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nomeLoja = DOMElements.lojaInput.value.trim();
+            if (!nomeLoja) { mostrarMensagem('O nome da loja não pode estar vazio.', true); return; }
+            if (!lojas.some(l => l && l.nome && l.nome.toLowerCase() === nomeLoja.toLowerCase())) {
+                lojas.push({ nome: nomeLoja });
+                salvarDados();
+                atualizarTodosOsSelects(); // Atualiza todos os selects que usam lojas
+                DOMElements.lojaInput.value = '';
+                mostrarMensagem(`Loja "${nomeLoja}" adicionada com sucesso.`);
+            } else {
+                mostrarMensagem('Uma loja com este nome já existe.', true);
             }
-        }
-    } else {
-        console.error('Desfile não encontrado para apagar com ID:', idNumerico);
-        alert('Erro: Desfile não encontrado para apagar.');
-    }
-}
+        });
 
-function editarDesfile(id) {
-    const idNumerico = Number(id);
-     if (isNaN(idNumerico)) { console.error("ID inválido para editar:", id); return; }
+        DOMElements.modeloForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nomeModelo = DOMElements.modeloInput.value.trim();
+            const numModelo = parseInt(DOMElements.modeloNumInput.value);
+            if (!nomeModelo) { mostrarMensagem('O nome da modelo não pode estar vazio.', true); return; }
+            if (isNaN(numModelo) || numModelo <= 0) { mostrarMensagem('O tempo de desfile deve ser um número positivo de minutos.', true); return; }
 
-    const desfileParaEditar = desfiles.find(d => d && d.id === idNumerico);
-    if (desfileParaEditar) {
-        // Verifica se modelo e loja ainda existem antes de preencher
-        if (!modelos[desfileParaEditar.modelo]) {
-            alert(`Não é possível editar: O modelo original deste desfile foi removido.`);
-            return;
-        }
-        if (!lojas[desfileParaEditar.loja]) {
-             alert(`Não é possível editar: A loja original deste desfile foi removida.`);
-            return;
-        }
+            if (!modelos.some(m => m && m.nome && m.nome.toLowerCase() === nomeModelo.toLowerCase())) {
+                modelos.push({ nome: nomeModelo, numero: numModelo });
+                salvarDados();
+                atualizarTodosOsSelects(); // Atualiza todos os selects que usam modelos
+                DOMElements.modeloForm.reset(); // Limpa o formulário
+                mostrarMensagem(`Modelo "${nomeModelo}" adicionada com sucesso.`);
+            } else {
+                mostrarMensagem('Uma modelo com este nome já existe.', true);
+            }
+        });
 
-        desfileEditIdInput.value = idNumerico;
-        modeloSelect.value = desfileParaEditar.modelo;
-        lojaSelect.value = desfileParaEditar.loja;
-        horaInput.value = desfileParaEditar.hora;
+        DOMElements.desfileForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const modeloIndex = DOMElements.modeloSelect.value;
+            const lojaIndex = DOMElements.lojaSelect.value;
+            const hora = DOMElements.horaInput.value;
+            const idEmEdicaoString = DOMElements.desfileEditIdInput.value;
+            const idEmEdicaoNumerico = idEmEdicaoString ? Number(idEmEdicaoString) : null;
 
-        desfileFormTitle.textContent = "Editar Desfile";
-        desfileSubmitBtn.textContent = "Atualizar Desfile";
-        desfileCancelBtn.style.display = 'inline-block';
-        desfileForm.classList.add('editing');
-        registrarDesfileSection.scrollIntoView({ behavior: 'smooth' });
-
-        msgDiv.textContent = '';
-        msgDiv.style.backgroundColor = '';
-        msgDiv.style.border = '';
-    } else {
-         console.error('Desfile não encontrado para editar com ID:', idNumerico);
-         alert('Erro: Desfile não encontrado para editar.');
-    }
-}
-
-function cancelarEdicao() {
-    desfileEditIdInput.value = '';
-    modeloSelect.value = '';
-    lojaSelect.value = '';
-    horaInput.value = '';
-
-    desfileFormTitle.textContent = "Registrar Desfile";
-    desfileSubmitBtn.textContent = "Registrar";
-    desfileCancelBtn.style.display = 'none';
-    desfileForm.classList.remove('editing');
-     msgDiv.textContent = '';
-     msgDiv.style.backgroundColor = '';
-     msgDiv.style.border = '';
-}
+            // Validação inicial
+            if (modeloIndex === "" || lojaIndex === "" || !hora) {
+                mostrarMensagem('Por favor, selecione modelo, loja e horário.', true);
+                return;
+            }
+             if (idEmEdicaoString && isNaN(idEmEdicaoNumerico)) {
+                 console.error("ID de edição inválido:", idEmEdicaoString);
+                 mostrarMensagem("Erro interno ao editar. Cancele e tente novamente.", true);
+                 return;
+            }
 
 
-// --- Event Handlers ---
-lojaForm.onsubmit = (e) => {
-  e.preventDefault();
-  const nomeLoja = lojaInput.value.trim();
-  if (!nomeLoja) { alert('Erro: O nome da loja não pode estar vazio.'); return; }
-  if (!lojas.some(l => l && l.nome && l.nome.toLowerCase() === nomeLoja.toLowerCase())) {
-    lojas.push({ nome: nomeLoja });
-    salvar();
-    atualizarSelects();
-    lojaInput.value = '';
-    alert(`Loja "${nomeLoja}" adicionada.`);
-  } else {
-    alert('Erro: Uma loja com este nome já existe.');
-  }
-};
+            const erro = podeDesfilar(modeloIndex, lojaIndex, hora, idEmEdicaoNumerico);
 
-modeloForm.onsubmit = (e) => {
-  e.preventDefault();
-  const nomeModelo = modeloInput.value.trim();
-  const numModelo = parseInt(modeloNumInput.value);
-  if (!nomeModelo) { alert('Erro: O nome da modelo não pode estar vazio.'); return; }
-  if (isNaN(numModelo) || numModelo <= 0) { alert('Erro: O tempo de desfile deve ser um número positivo de minutos.'); return; }
+            if (erro) {
+                mostrarMensagem(erro, true); // Mostra erro principal
 
-  if (!modelos.some(m => m && m.nome && m.nome.toLowerCase() === nomeModelo.toLowerCase())) {
-    modelos.push({ nome: nomeModelo, numero: numModelo });
-    salvar();
-    atualizarSelects();
-     modeloInput.value = '';
-     modeloNumInput.value = '';
-    alert(`Modelo "${nomeModelo}" adicionada (tempo: ${numModelo} min).`);
-  } else {
-    alert('Erro: Uma modelo com este nome já existe.');
-  }
-};
+                // Lógica de sugestão (pode ser movida para função separada se ficar complexa)
+                let sugestoes = [];
+                const lojaNomeParaSugestao = lojas[lojaIndex]?.nome || 'esta loja';
+                modelos.forEach((modelo, index) => {
+                    if (modelo && index != modeloIndex) { // Verifica se modelo existe
+                        if (podeDesfilar(index, lojaIndex, hora, idEmEdicaoNumerico) === null) {
+                            sugestoes.push(modelo.nome);
+                        }
+                    }
+                });
+                if (sugestoes.length > 0) {
+                     DOMElements.msgDiv.innerHTML += `<br>💡 Sugestões para ${lojaNomeParaSugestao} às ${hora}: <strong>${sugestoes.join(', ')}</strong>`;
+                } else {
+                     // Mensagem adicional se não houver sugestões (opcional)
+                }
 
-desfileForm.onsubmit = (e) => {
-    e.preventDefault();
-    const modeloIndex = modeloSelect.value;
-    const lojaIndex = lojaSelect.value;
-    const hora = horaInput.value;
-    const idEmEdicaoString = desfileEditIdInput.value;
-    const idEmEdicaoNumerico = idEmEdicaoString ? Number(idEmEdicaoString) : null;
+            } else {
+                // Sucesso - Adicionar ou Atualizar
+                const nomeModelo = modelos[modeloIndex]?.nome || 'Modelo';
+                const nomeLoja = lojas[lojaIndex]?.nome || 'Loja';
 
-    if (idEmEdicaoString && isNaN(idEmEdicaoNumerico)) {
-        console.error("ID de edição inválido no formulário:", idEmEdicaoString);
-        msgDiv.textContent = '❌ Erro interno ao tentar editar. Cancele e tente novamente.';
-        msgDiv.style.color = 'red';
-        return;
-    }
-
-    if (modeloIndex === "" || lojaIndex === "" || !hora) {
-        msgDiv.textContent = '❌ Por favor, selecione modelo, loja e horário.';
-        msgDiv.style.color = 'red';
-        return;
-    }
-
-    const erro = podeDesfilar(modeloIndex, lojaIndex, hora, idEmEdicaoNumerico);
-
-    if (erro) {
-        msgDiv.textContent = '❌ Erro: ' + erro;
-        msgDiv.style.color = 'red';
-        msgDiv.innerHTML += '<br>';
-
-        let sugestoes = [];
-        const lojaNomeParaSugestao = lojas[lojaIndex]?.nome || 'esta loja';
-        modelos.forEach((modelo, index) => {
-            if (modelo && index != modeloIndex) { // Verifica se modelo existe e não é o atual
-                if (podeDesfilar(index, lojaIndex, hora, idEmEdicaoNumerico) === null) {
-                    sugestoes.push(modelo.nome);
+                if (idEmEdicaoNumerico !== null) { // Atualizando
+                    const desfileIndex = desfiles.findIndex(d => d && d.id === idEmEdicaoNumerico);
+                    if (desfileIndex > -1) {
+                        desfiles[desfileIndex] = { ...desfiles[desfileIndex], modelo: modeloIndex, loja: lojaIndex, hora: hora }; // Atualiza
+                        salvarDados();
+                        renderizarHistorico();
+                        mostrarMensagem(`Desfile de ${nomeModelo} atualizado com sucesso.`);
+                        cancelarEdicao();
+                    } else {
+                        console.error("Erro ao atualizar: Desfile não encontrado com ID:", idEmEdicaoNumerico);
+                        mostrarMensagem('Erro ao atualizar: Desfile não encontrado.', true);
+                        cancelarEdicao(); // Cancela mesmo com erro
+                    }
+                } else { // Adicionando
+                    const novoDesfile = { id: Date.now(), modelo: modeloIndex, loja: lojaIndex, hora: hora };
+                    desfiles.push(novoDesfile);
+                    salvarDados();
+                    renderizarHistorico();
+                    mostrarMensagem(`Desfile de ${nomeModelo} registrado com sucesso.`);
+                    // Limpa campos após adicionar com sucesso
+                    DOMElements.modeloSelect.value = '';
+                    DOMElements.lojaSelect.value = '';
+                    DOMElements.horaInput.value = '';
                 }
             }
         });
-         if (sugestoes.length > 0) {
-             msgDiv.innerHTML += `💡 Modelos talvez disponíveis para ${lojaNomeParaSugestao} às ${hora}: <strong>${sugestoes.join(', ')}</strong>`;
-         } else {
-              if (erro.includes("atingiu o limite de 6 desfiles no total")) {
-                  msgDiv.innerHTML += `😔 A loja ${lojaNomeParaSugestao} está com a agenda cheia.`;
-              } else if (erro.includes("já ocupado por")) {
-                  msgDiv.innerHTML += `😔 Horário ${hora} ocupado. Nenhuma outra modelo pode desfilar neste exato momento.`;
-              }
-              else {
-                  msgDiv.innerHTML += `😔 Nenhuma outra modelo disponível para ${lojaNomeParaSugestao} neste horário que atenda a todas as restrições.`;
-              }
-         }
 
-    } else {
-        const nomeModelo = modelos[modeloIndex]?.nome || 'Modelo';
-        const nomeLoja = lojas[lojaIndex]?.nome || 'Loja';
+        DOMElements.condForm.addEventListener('submit', (e) => {
+             e.preventDefault();
+             const modeloIndex = DOMElements.condModelSelect.value;
+             const lojaIndex = DOMElements.condLojaSelect.value;
+             if (modeloIndex === "" || lojaIndex === "") { mostrarMensagem('Selecione a modelo e a loja para criar a restrição.', true); return; }
+             if (!modelos[modeloIndex] || !lojas[lojaIndex]) { mostrarMensagem("Erro: Modelo ou Loja selecionado inválido.", true); return; }
 
-        if (idEmEdicaoNumerico !== null) {
-            const desfileIndex = desfiles.findIndex(d => d && d.id === idEmEdicaoNumerico);
-            if (desfileIndex > -1) {
-                desfiles[desfileIndex].modelo = modeloIndex;
-                desfiles[desfileIndex].loja = lojaIndex;
-                desfiles[desfileIndex].hora = hora;
-                msgDiv.textContent = `✅ Desfile de ${nomeModelo} por ${nomeLoja} às ${hora} ATUALIZADO!`;
-                msgDiv.style.color = 'green';
-                salvar(); // Salva antes de cancelar/mostrar
-                mostrarHistorico();
-                cancelarEdicao();
-            } else {
-                 console.error("Erro ao atualizar: Desfile não encontrado com ID:", idEmEdicaoNumerico);
-                 msgDiv.textContent = '❌ Erro ao atualizar: Desfile não encontrado.';
-                 msgDiv.style.color = 'red';
-                 salvar(); // Salva mesmo se deu erro na UI (pode ter mudado algo antes)
-                 mostrarHistorico();
-                 cancelarEdicao();
-                 return;
+             const jaExiste = bloqueios.some(b => b && b.modelo == modeloIndex && b.loja == lojaIndex);
+             if (!jaExiste) {
+                 bloqueios.push({ modelo: modeloIndex, loja: lojaIndex });
+                 salvarDados();
+                 renderizarCondicoes();
+                 mostrarMensagem(`Restrição adicionada: ${modelos[modeloIndex].nome} X ${lojas[lojaIndex].nome}.`);
+                 DOMElements.condForm.reset(); // Limpa selects do form de condição
+             } else {
+                 mostrarMensagem('Esta restrição já existe.', true);
+             }
+        });
+
+        // Delegação de Eventos para botões no Histórico
+        DOMElements.histDiv.addEventListener('click', (event) => {
+            const targetButton = event.target.closest('button'); // Pega o botão mesmo se clicou no ícone
+            if (!targetButton) return;
+
+            const idString = targetButton.dataset.id;
+            if (!idString) return;
+            const idNumerico = Number(idString);
+            if (isNaN(idNumerico)) return;
+
+            if (targetButton.classList.contains('delete-desfile-btn')) {
+                apagarDesfile(idNumerico);
+            } else if (targetButton.classList.contains('edit-desfile-btn')) {
+                 if (!targetButton.disabled) {
+                     prepararEdicaoDesfile(idNumerico);
+                 }
             }
-        } else {
-            const novoDesfile = {
-                id: Date.now(),
-                modelo: modeloIndex,
-                loja: lojaIndex,
-                hora: hora
-            };
-            desfiles.push(novoDesfile);
-            msgDiv.textContent = `✅ Desfile de ${nomeModelo} por ${nomeLoja} às ${hora} REGISTRADO!`;
-            msgDiv.style.color = 'green';
-            salvar(); // Salva antes de limpar/mostrar
-            mostrarHistorico();
-            horaInput.value = '';
-            modeloSelect.value = '';
-            lojaSelect.value = '';
-        }
-    }
-};
+        });
 
-
-condForm.onsubmit = (e) => {
-  e.preventDefault();
-  const modeloIndex = condModelSelect.value;
-  const lojaIndex = condLojaSelect.value;
-  if (modeloIndex === "" || lojaIndex === "") { alert('Selecione a modelo e a loja.'); return; }
-
-  // Verifica se os índices são válidos antes de criar
-  if (!modelos[modeloIndex] || !lojas[lojaIndex]) {
-       alert("Erro: Modelo ou Loja selecionado inválido.");
-       return;
-  }
-
-  const jaExiste = bloqueios.some(b => b && b.modelo == modeloIndex && b.loja == lojaIndex);
-  if (!jaExiste) {
-      bloqueios.push({ modelo: modeloIndex, loja: lojaIndex });
-      salvar();
-      mostrarCondicoes();
-      alert(`Restrição adicionada: ${modelos[modeloIndex].nome} não pode desfilar por ${lojas[lojaIndex].nome}.`);
-      condModelSelect.value = '';
-      condLojaSelect.value = '';
-  } else {
-    alert('Esta restrição já existe.');
-  }
-};
-
-
-histDiv.addEventListener('click', (event) => {
-    const target = event.target.closest('button');
-    if (!target) return;
-
-    const idString = target.dataset.id;
-    if (!idString) return;
-
-    const idNumerico = Number(idString);
-    if (isNaN(idNumerico)) {
-        console.error("ID inválido no botão:", idString);
-        return;
+        // Botões de Limpeza
+        DOMElements.desfileCancelBtn.addEventListener('click', cancelarEdicao);
+        DOMElements.btnLimparHistorico.addEventListener('click', limparApenasHistorico);
+        DOMElements.btnLimparTudo.addEventListener('click', limparTodosOsDados);
     }
 
-    if (target.classList.contains('delete-desfile-btn')) {
-        apagarDesfile(idNumerico);
-    } else if (target.classList.contains('edit-desfile-btn')) {
-        if (!target.disabled) { // Verifica se o botão não está desabilitado
-             editarDesfile(idNumerico);
-        }
-    }
-});
-
-desfileCancelBtn.addEventListener('click', cancelarEdicao);
-
-
-// --- Funções de Limpeza ---
-function limparDados() {
-    if (confirm('Tem certeza que deseja apagar TODOS os dados (lojas, modelos, desfiles, restrições)? Esta ação não pode ser desfeita.')) {
-      localStorage.clear();
-      lojas = []; modelos = []; desfiles = []; bloqueios = [];
-      cancelarEdicao();
-      // Força a atualização da UI imediatamente
-      atualizarSelects();
-      mostrarCondicoes();
-      mostrarHistorico();
-      alert("Todos os dados foram apagados.");
-      // location.reload(); // Recarregar pode ser desnecessário agora
-    }
-  }
-
-function limparHistorico() {
-    if (desfiles.length === 0) {
-        alert("O histórico de desfiles já está vazio.");
-        return;
-    }
-    if (confirm('Tem certeza que deseja apagar APENAS o histórico de desfiles? Lojas, modelos e restrições serão mantidos.')) {
-      desfiles = [];
-      salvar();
-      mostrarHistorico();
-      if(desfileEditIdInput.value) {
-          cancelarEdicao();
-      }
-      alert('Histórico de desfiles limpo com sucesso.');
-    }
-  }
-
-// --- INICIALIZAÇÃO ---
-document.addEventListener('DOMContentLoaded', () => {
-    // Carrega dados e inicializa UI
-    // Adiciona tratamento de erro básico para JSON.parse
-    try {
-        lojas = JSON.parse(localStorage.getItem('lojas')) || [];
-        modelos = JSON.parse(localStorage.getItem('modelos')) || [];
-        desfiles = JSON.parse(localStorage.getItem('desfiles')) || [];
-        bloqueios = JSON.parse(localStorage.getItem('bloqueios')) || [];
-
-        // Validação básica dos dados carregados
-        if (!Array.isArray(lojas)) lojas = [];
-        if (!Array.isArray(modelos)) modelos = [];
-        if (!Array.isArray(desfiles)) desfiles = [];
-        if (!Array.isArray(bloqueios)) bloqueios = [];
-
-         // Limpa desfiles inválidos (sem id, etc.) que podem ter vindo do localStorage antigo
-         const desfilesOriginaisCount = desfiles.length;
-         desfiles = desfiles.filter(d => d && typeof d === 'object' && d.id !== undefined && d.id !== null && d.modelo !== undefined && d.loja !== undefined && d.hora !== undefined);
-         if (desfiles.length !== desfilesOriginaisCount) {
-             console.warn("Desfiles inválidos foram removidos do localStorage durante o carregamento.");
-             salvar(); // Salva a lista limpa
-         }
-
-
-    } catch (e) {
-        console.error("Erro ao carregar dados do localStorage:", e);
-        alert("Erro ao carregar dados salvos. Os dados podem ter sido corrompidos. Iniciando com dados vazios.");
-        lojas = []; modelos = []; desfiles = []; bloqueios = [];
-        localStorage.clear(); // Limpa o localStorage corrompido
+    /** Função principal de inicialização da aplicação */
+    function inicializarAplicacao() {
+        carregarDados(); // Carrega dados do localStorage
+        atualizarTodosOsSelects(); // Popula selects com dados carregados/atuais
+        renderizarCondicoes(); // Exibe restrições
+        renderizarHistorico(); // Exibe histórico
+        inicializarEventos(); // Configura listeners de eventos
+        cancelarEdicao(); // Garante estado inicial limpo do form de desfile
+        console.log("Aplicação inicializada.");
     }
 
-    atualizarSelects();
-    mostrarCondicoes();
-    mostrarHistorico();
-    cancelarEdicao(); // Garante estado inicial limpo
-});
+    // --- Ponto de Entrada ---
+    // Garante que o DOM está pronto antes de executar o script
+    document.addEventListener('DOMContentLoaded', inicializarAplicacao);
+
+})(); // Fim da IIFE
